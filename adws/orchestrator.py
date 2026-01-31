@@ -368,6 +368,188 @@ class Orchestrator:
         )
 
     # =========================================================================
+    # Task Classification
+    # =========================================================================
+
+    # Valid commands that the classifier can return
+    VALID_COMMANDS = [
+        "/architect",
+        "/designer",
+        "/ui_designer",
+        "/test_tdd_designer",
+        "/feature",
+        "/bug",
+        "/chore",
+        "/backend_coder",
+        "/ui_coder",
+        "/tester",
+    ]
+
+    def classify_task(
+        self,
+        agent_name: str,
+        task_description: str,
+        model: str = "haiku",
+    ) -> Optional[str]:
+        """Classify a task into the appropriate command type.
+
+        Args:
+            agent_name: Name of the agent to use for classification
+            task_description: The task to classify
+            model: Model to use (haiku recommended for speed)
+
+        Returns:
+            The command string (e.g., "/feature") or None if classification failed
+        """
+        agent = self.get_agent(agent_name)
+        if not agent:
+            return None
+
+        # Execute classifier command
+        response = execute_simple(
+            prompt=f"/classifier {task_description}",
+            model=model,
+            working_directory=agent.repo_path,
+        )
+
+        if not response.success:
+            return None
+
+        # Parse the response - should be just the command
+        result = response.output.strip()
+
+        # Validate it's a known command
+        if result in self.VALID_COMMANDS:
+            return result
+        elif result == "0":
+            return None  # Classifier couldn't determine type
+
+        return None
+
+    def classify_and_execute(
+        self,
+        agent_name: str,
+        task_description: str,
+        classifier_model: str = "haiku",
+        execution_model: str = "sonnet",
+    ) -> AgentResponse:
+        """Classify a task and execute the appropriate command.
+
+        This is the main entry point for the pipeline:
+        Task → Classifier → Command Execution
+
+        Args:
+            agent_name: Name of the agent to use
+            task_description: The task to perform
+            classifier_model: Model for classification (haiku for speed)
+            execution_model: Model for execution (sonnet for quality)
+
+        Returns:
+            AgentResponse with the result
+        """
+        agent = self.get_agent(agent_name)
+        if not agent:
+            return AgentResponse(
+                agent_name=agent_name,
+                content=f"Agent '{agent_name}' not found",
+                success=False,
+            )
+
+        # Step 1: Classify the task
+        command = self.classify_task(agent_name, task_description, classifier_model)
+
+        if not command:
+            return AgentResponse(
+                agent_name=agent_name,
+                content="Failed to classify task. Please be more specific or choose a command manually.",
+                success=False,
+            )
+
+        # Step 2: Execute the classified command
+        return self.execute_command(
+            agent_name=agent_name,
+            command=command,
+            args=[task_description],
+            model=execution_model,
+        )
+
+    def get_pipeline_info(self, command: str) -> Dict:
+        """Get information about what a command does in the pipeline.
+
+        Args:
+            command: The slash command
+
+        Returns:
+            Dict with command info
+        """
+        pipeline_info = {
+            # Planning commands
+            "/architect": {
+                "type": "planning",
+                "output": "ADR (Architectural Decision Record)",
+                "location": "adr/*.md",
+                "description": "System-level architecture decisions",
+            },
+            "/designer": {
+                "type": "planning",
+                "output": "DDR (Design Decision Record)",
+                "location": "ddr/*.md",
+                "description": "Code-level design (classes, methods, flows)",
+            },
+            "/ui_designer": {
+                "type": "planning",
+                "output": "UDR (UI Decision Record)",
+                "location": "udr/*.md",
+                "description": "UI/UX design (screens, components, flows)",
+            },
+            "/test_tdd_designer": {
+                "type": "planning",
+                "output": "TDR (Test Design Record)",
+                "location": "tdr/*.md",
+                "description": "Test design for TDD approach",
+            },
+            "/feature": {
+                "type": "planning",
+                "output": "Feature Spec",
+                "location": "specs/*.md",
+                "description": "New feature implementation plan",
+            },
+            "/bug": {
+                "type": "planning",
+                "output": "Bug Fix Spec",
+                "location": "specs/*.md",
+                "description": "Bug fix plan with root cause analysis",
+            },
+            "/chore": {
+                "type": "planning",
+                "output": "Chore Spec",
+                "location": "specs/*.md",
+                "description": "Maintenance task plan",
+            },
+            # Implementation commands
+            "/backend_coder": {
+                "type": "implementation",
+                "output": "Code",
+                "location": "app/server/**",
+                "description": "Backend implementation",
+            },
+            "/ui_coder": {
+                "type": "implementation",
+                "output": "Code",
+                "location": "app/client/**",
+                "description": "Frontend implementation",
+            },
+            "/tester": {
+                "type": "validation",
+                "output": "Test Report",
+                "location": "N/A",
+                "description": "Final validation and QA",
+            },
+        }
+
+        return pipeline_info.get(command, {"error": "Unknown command"})
+
+    # =========================================================================
     # Utility Methods
     # =========================================================================
 
@@ -379,4 +561,5 @@ class Orchestrator:
             "agents": list(self._agents.keys()),
             "conversations_count": len(self._conversations),
             "conversations": list(self._conversations.keys()),
+            "valid_commands": self.VALID_COMMANDS,
         }

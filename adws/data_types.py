@@ -13,6 +13,8 @@ TaskTypeCommand = Literal["/chore", "/bug", "/feature"]
 
 # All slash commands used in the ADW system
 SlashCommand = Literal[
+    # Classifier (entry point)
+    "/classifier",
     # Task type commands
     "/chore",
     "/bug",
